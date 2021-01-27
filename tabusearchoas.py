@@ -1,5 +1,6 @@
 '''
 '''
+from math import ceil
 
 class TabuSearchOAS:
 	"""
@@ -24,11 +25,22 @@ class TabuSearchOAS:
 
 		self.setuptime = setuptime
 
+		# initial, current, best solution
+		self.initsol = None
+		self.currsol = None
+		self.bestsol = None
 
-	def calculateRevenue(self, solution):
+		# best revenue
+		self.bestrev = 0
+		self.tabutenure = ceil(2*self.n/3)
 
+		# tabu list
+		self.tabulist = []
+
+
+	def calculateCompletionTimes(self, solution):
 		# array to hold completion time for each order
-		completiontime = [0 for _ in solution]
+		completiontimes = [0 for _ in solution]
 
 		# calculate completion time for all
 		# based on sequence
@@ -46,17 +58,23 @@ class TabuSearchOAS:
 				+ self.processtime[nextorder]
 
 			# absolute time
-			completiontime[nextorderindex] = timeelapsed + time
+			completiontimes[nextorderindex] = timeelapsed + time
 			timeelapsed = timeelapsed + time
 
 			prevorder = nextorder
 
-		# print(completiontime, max(completiontime))
+		# print(completiontimes, max(completiontimes))
+		return completiontimes
+
+
+	def calculateRevenue(self, solution):
+		# get completion time for the solution
+		completiontimes = self.calculateCompletionTimes(solution)
 
 		# measure of delay in completing order
 		# enumerate starting 1
 		tardiness = [max(0, ctime - self.duedate[ind])
-			for ind, ctime in enumerate(completiontime, start=1)]
+			for ind, ctime in enumerate(completiontimes, start=1)]
 		print(tardiness)
 
 		revenue = [
@@ -132,3 +150,85 @@ class TabuSearchOAS:
 			solution = newsolution
 
 		return solution
+
+
+	def checkFeasibility(self, solution, completiontimes=None):
+		feasible = True
+		if completiontimes == None:
+			# calculate if not available
+			completiontimes = self.calculateCompletionTimes(solution)
+
+		for orderno, ctime in enumerate(completiontimes, start=1):
+			# check if completion time is within due date
+			if ctime > self.duedate[orderno]:
+				feasible = False
+				break
+
+			# check if release date could cause infeasibility
+			# INSERT LOGIC HERE
+		return feasible
+
+
+	def generateNeighbors(self):
+		# swap & insertion
+		# insertion here refers to including one order 
+		# and rejecting another when one of the seq swapped is 0
+		neighbors = []
+		for order1, seq1 in enumerate(self.currsol[:-1], start=1):
+			for order2, seq2 in enumerate(self.currsol[order1:], start=order1+1):
+				if seq1 == 0 and seq2 == 0:
+					# same neighbor
+					continue
+				else:
+					# make copy
+					neighbor = self.currsol[:]
+					# swap
+					neighbor[order1-1], neighbor[order2-1] = \
+						neighbor[order2-1], neighbor[order1-1]
+					# append to neighbors
+					neighbors.append(neighbor)
+		return neighbors
+
+
+	def findbestNeighbor(self, neighbors):
+		pass
+
+
+	def updateTabuList(self, *args):
+		pass
+
+
+	def tabuSearchAlgorithm(self, threshould=50):
+		# create initial solution
+		self.initsol = self.createInitialSolution()
+		self.currsol = self.initsol[:]
+
+		terminate = False
+		# count of iterations with no improvement in sol
+		noimprovementcount = 0
+
+		# iterate until termination criteria is met
+		while not terminate:
+			neighbors = self.generateNeighbors(self)
+
+			# best solution among neighbors
+			bestneighbor = self.findBestNeighbor(self, neighbors)
+			self.currsol = bestneighbor
+
+			# update the tabu list
+			self.updateTabuList()
+
+			currsolrev = self.calculateRevenue(self.currsol)
+
+			if currsolrev > self.bestrev:
+				self.bestsol = self.currsol
+				self.bestrev = self.currsolrev
+				noimprovementcount = 0
+			else:
+				noimprovementcount += 1
+			if noimprovementcount >= 50:
+				terminate = True
+
+			# write here randomized local search procedure
+
+		return self.bestsol
