@@ -27,14 +27,14 @@ def fetchData(filepath):
 	for ind in range(ordercount):
 		setuptime[ind] = fetchDataFromLines(lines[ind+6])
 
-	print(releasedate)
-	print(processtime)
-	print(duedate)
-	print(deadline)
-	print(revenue)
-	print(weight)
+	# print(releasedate)
+	# print(processtime)
+	# print(duedate)
+	# print(deadline)
+	# print(revenue)
+	# print(weight)
 
-	print(setuptime)
+	# print(setuptime)
 	return (ordercount, releasedate, processtime, 
 		duedate, deadline, revenue,
 		weight, setuptime)
@@ -42,8 +42,9 @@ def fetchData(filepath):
 
 def solveOAS(args):
 	ts = TabuSearchOAS(*args)
-	ts.createInitialSolution()
+	# ts.createInitialSolution()
+	ts.tabuSearchAlgorithm()
 
 if __name__ == '__main__':
-	args = fetchData("Dataset_OAS/Dataset_OAS/10orders/Tao1/R1/Dataslack_10orders_Tao1R1_1.txt")
+	args = fetchData("Dataset_OAS/Dataset_OAS/100orders/Tao9/R9/Dataslack_100orders_Tao9R9_9.txt")
 	solveOAS(args)

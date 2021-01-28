@@ -36,6 +36,7 @@ class TabuSearchOAS:
 
 		# tabu list
 		self.tabulist = []
+		self.tabulistlen = 0
 
 
 	def calculateCompletionTimes(self, solution):
@@ -75,18 +76,51 @@ class TabuSearchOAS:
 		# enumerate starting 1
 		tardiness = [max(0, ctime - self.duedate[ind])
 			for ind, ctime in enumerate(completiontimes, start=1)]
-		print(tardiness)
+		# print(tardiness)
 
 		revenue = [
 			self.revenue[ind]*(1 if solution[ind-1] > 0 else 0) \
 			- self.weight[ind]*delay
 			for ind, delay in enumerate(tardiness, start=1)]
 
-		print(revenue, sum(revenue), "\n")
+		# print(revenue, sum(revenue), "\n")
 		return revenue
 
 
-	def createInitialSolution(self, mostnegative=True):
+	def rejectInfeasibleOrders(self, solution, mostnegative=True):
+		revenue = self.calculateRevenue(solution)
+		while any([revenue[i] <= 0 for i, seq in enumerate(solution) if seq > 0]):
+			# solution contains scheduled order(s) with nonpositve revenue
+			# this will reject orders that might be scheduled but have zero revenue
+			if mostnegative:
+				# start by rejecting order with min revenue
+				indmaxnegativerevenue = revenue.index(min(revenue))
+			else:
+				# find first non postive
+				for ind, rev in enumerate(revenue):
+					if rev <=0 and solution[ind] > 0:
+						indmaxnegativerevenue = ind
+						break
+			# print(indmaxnegativerevenue)
+			sequencenum = solution[indmaxnegativerevenue]
+
+			# copy solution
+			newsolution = solution[:]
+			newsolution[indmaxnegativerevenue] = 0 # reject order
+
+			# adjust sequence after rejecting order
+			newsolution = [
+				(lambda x: x-1 if x>sequencenum else x)(x) 
+				for x in newsolution]
+
+			# print(newsolution)
+			revenue = self.calculateRevenue(newsolution)
+			solution = newsolution
+			# print(solution, sum(revenue))
+		return solution, revenue
+
+
+	def createInitialSolution(self):
 		revenueloadratio = {}
 
 		for i in range(1, self.n+1):
@@ -116,38 +150,13 @@ class TabuSearchOAS:
 			solution[order-1] = seq
 			seq += 1
 
-		print(solution)
 		revenue = self.calculateRevenue(solution)
+		print(solution, sum(revenue))
 		
-		while any([revenue[i] <= 0 for i, seq in enumerate(solution) if seq > 0]):
-			# solution contains scheduled order(s) with nonpositve revenue
-			# this will reject orders that might be scheduled but have zero revenue
-
-			
-			if mostnegative:
-				# start by rejecting order with min revenue
-				indmaxnegativerevenue = revenue.index(min(revenue))
-			else:
-				# find first non postive
-				for ind, rev in enumerate(revenue):
-					if rev <=0 and solution[ind] > 0:
-						indmaxnegativerevenue = ind
-						break
-			print(indmaxnegativerevenue)
-			sequencenum = solution[indmaxnegativerevenue]
-
-			# copy solution
-			newsolution = solution
-			newsolution[indmaxnegativerevenue] = 0 # reject order
-
-			# adjust sequence after rejecting order
-			newsolution = [
-				(lambda x: x-1 if x>sequencenum else x)(x) 
-				for x in newsolution]
-
-			print(newsolution)
-			revenue = self.calculateRevenue(newsolution)
-			solution = newsolution
+		# iteratively remove infeasible orders
+		# causing negative revenue
+		solution, revenue = self.rejectInfeasibleOrders(solution)
+		print(solution, sum(revenue))
 
 		return solution
 
@@ -174,10 +183,15 @@ class TabuSearchOAS:
 		# insertion here refers to including one order 
 		# and rejecting another when one of the seq swapped is 0
 		neighbors = []
+		swaps = {}
 		for order1, seq1 in enumerate(self.currsol[:-1], start=1):
 			for order2, seq2 in enumerate(self.currsol[order1:], start=order1+1):
 				if seq1 == 0 and seq2 == 0:
 					# same neighbor
+					continue
+				elif (order1, order2) in self.tabulist:
+					continue
+				elif (order2, order1) in self.tabulist:
 					continue
 				else:
 					# make copy
@@ -185,20 +199,41 @@ class TabuSearchOAS:
 					# swap
 					neighbor[order1-1], neighbor[order2-1] = \
 						neighbor[order2-1], neighbor[order1-1]
+
+					# reject infeasible orders
+					neighbor, _ = self.rejectInfeasibleOrders(neighbor)
+
+					# track swap
+					swaps[tuple(neighbor)] = [(order1, order2), (order2, order1)]
 					# append to neighbors
 					neighbors.append(neighbor)
-		return neighbors
+		return neighbors, swaps
 
 
-	def findbestNeighbor(self, neighbors):
-		pass
+	def findBestNeighbor(self, neighbors):
+		bestneighborrev = -99999
+		bestneighbor = None
+		for neighbor in neighbors:
+			revenue = sum(self.calculateRevenue(neighbor))
+			if revenue > bestneighborrev:
+				bestneighborrev = revenue
+				bestneighbor = neighbor
+
+		return bestneighbor
 
 
-	def updateTabuList(self, *args):
-		pass
+	def updateTabuList(self, swaps):
+		if self.tabulistlen >= self.tabutenure:
+			# remove first two moves
+			self.tabulist = self.tabulist[2:]
+			self.tabulist.extend(swaps)
+		else:
+			self.tabulist.extend(swaps)
+			self.tabulistlen += len(swaps)
 
 
 	def tabuSearchAlgorithm(self, threshould=50):
+
 		# create initial solution
 		self.initsol = self.createInitialSolution()
 		self.currsol = self.initsol[:]
@@ -206,23 +241,24 @@ class TabuSearchOAS:
 		terminate = False
 		# count of iterations with no improvement in sol
 		noimprovementcount = 0
-
+		print("Starting Tabu Search")
 		# iterate until termination criteria is met
 		while not terminate:
-			neighbors = self.generateNeighbors(self)
+			neighbors, swaps = self.generateNeighbors()
 
 			# best solution among neighbors
-			bestneighbor = self.findBestNeighbor(self, neighbors)
+			bestneighbor = self.findBestNeighbor(neighbors)
 			self.currsol = bestneighbor
 
 			# update the tabu list
-			self.updateTabuList()
+			self.updateTabuList(swaps.get(tuple(bestneighbor), []))
 
-			currsolrev = self.calculateRevenue(self.currsol)
+			currsolrev = sum(self.calculateRevenue(self.currsol))
 
 			if currsolrev > self.bestrev:
 				self.bestsol = self.currsol
-				self.bestrev = self.currsolrev
+				self.bestrev = currsolrev
+				print(f'Improved Solution {self.bestsol} and Reveue {self.bestrev}')
 				noimprovementcount = 0
 			else:
 				noimprovementcount += 1
@@ -231,4 +267,5 @@ class TabuSearchOAS:
 
 			# write here randomized local search procedure
 
+		print(noimprovementcount, self.bestsol, self.bestrev)
 		return self.bestsol
