@@ -5,6 +5,7 @@ from numpy import zeros
 from pathlib import Path
 
 from tabusearchoas import TabuSearchOAS
+from exactoas import ExactOAS
 
 def fetchDataFromLines(line):
 	return [float(data) for data in line.replace('\n', '').split(',')]
@@ -45,6 +46,9 @@ def solveOAS(args):
 	# ts.createInitialSolution()
 	ts.tabuSearchAlgorithm()
 
+	ex = ExactOAS(*args)
+	ex.modelMIPForOAS()
+
 if __name__ == '__main__':
-	args = fetchData("Dataset_OAS/Dataset_OAS/100orders/Tao9/R9/Dataslack_100orders_Tao9R9_9.txt")
+	args = fetchData("Dataset_OAS/Dataset_OAS/50orders/Tao9/R9/Dataslack_50orders_Tao9R9_9.txt")
 	solveOAS(args)
