@@ -4,4 +4,4 @@ data source.txt
 *.pdf
 
 # gurobi log
-gurobi.txt
+gurobi.log
