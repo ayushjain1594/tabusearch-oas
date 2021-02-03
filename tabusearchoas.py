@@ -59,8 +59,9 @@ class TabuSearchOAS:
 				+ self.processtime[nextorder]
 
 			# absolute time
-			completiontimes[nextorderindex] = timeelapsed + time
-			timeelapsed = timeelapsed + time
+			completiontimes[nextorderindex] = \
+				max(timeelapsed, self.releasedate[nextorder]) + time
+			timeelapsed = completiontimes[nextorderindex]
 
 			prevorder = nextorder
 
@@ -87,36 +88,75 @@ class TabuSearchOAS:
 		return revenue
 
 
+	def calculateStartTime(self, solution, completiontimes=None):
+		starttimes = [0 for _ in solution]
+		if completiontimes == None:
+			completiontimes = self.calculateCompletionTimes(solution)
+
+		seq = max(solution)
+		while seq > 0:
+			ind = solution.index(seq)
+			if seq > 1:
+				ind_ = solution.index(seq-1)
+				setup = self.setuptime[ind_+1, ind+1]
+			else:
+				setup = self.setuptime[0, ind+1]
+			process = self.processtime[ind+1]
+			compl = completiontimes[ind]
+			starttimes[ind] = compl - process - setup
+			seq -= 1
+		return starttimes
+
+
+	def calculatePreemption(self, solution):
+		# array to contain postive value if 
+		# order processing starts before release date
+		preemption = [0 for _ in solution]
+
+		# get start times
+		starttimes = self.calculateStartTime(solution)
+		for ind, start in enumerate(starttimes, start=1):
+			if solution[ind-1] > 0: 
+				# order is scheduled
+				preemption[ind-1] = self.releasedate[ind] - start
+		return preemption
+
+
+	@staticmethod
+	def rejectOrder(solution, indextoreject=None):
+		sequencenum = solution[indextoreject]
+		newsolution = solution[:]
+		newsolution[indextoreject] = 0 #reject order
+
+		# adjust sequence for orders
+		newsolution = [
+			(lambda x: x-1 if x>sequencenum else x)(x) 
+			for x in newsolution]
+		return newsolution
+
+
 	def rejectInfeasibleOrders(self, solution, mostnegative=True):
 		revenue = self.calculateRevenue(solution)
-		while any([revenue[i] <= 0 for i, seq in enumerate(solution) if seq > 0]):
+		while any([revenue[i] < 0 for i, seq in enumerate(solution) if seq > 0]):
 			# solution contains scheduled order(s) with nonpositve revenue
 			# this will reject orders that might be scheduled but have zero revenue
 			if mostnegative:
 				# start by rejecting order with min revenue
-				indmaxnegativerevenue = revenue.index(min(revenue))
+				indnegativerevenue = revenue.index(min(revenue))
 			else:
 				# find first non postive
 				for ind, rev in enumerate(revenue):
 					if rev <=0 and solution[ind] > 0:
-						indmaxnegativerevenue = ind
+						indnegativerevenue = ind
 						break
-			# print(indmaxnegativerevenue)
-			sequencenum = solution[indmaxnegativerevenue]
-
-			# copy solution
-			newsolution = solution[:]
-			newsolution[indmaxnegativerevenue] = 0 # reject order
-
-			# adjust sequence after rejecting order
-			newsolution = [
-				(lambda x: x-1 if x>sequencenum else x)(x) 
-				for x in newsolution]
+			# reject order
+			newsolution = TabuSearchOAS.rejectOrder(solution, indnegativerevenue)
 
 			# print(newsolution)
 			revenue = self.calculateRevenue(newsolution)
 			solution = newsolution
-			# print(solution, sum(revenue))
+		# print(solution, sum(revenue))
+		# print('preemption: ', self.calculatePreemption(solution))
 		return solution, revenue
 
 
@@ -151,12 +191,18 @@ class TabuSearchOAS:
 			seq += 1
 
 		revenue = self.calculateRevenue(solution)
-		print(solution, sum(revenue))
+		# print(solution, sum(revenue))
+		print('Starting with solution: ' +\
+			self.displaySolution(solution, sum(revenue))
+		)
 		
 		# iteratively remove infeasible orders
 		# causing negative revenue
 		solution, revenue = self.rejectInfeasibleOrders(solution)
-		print(solution, sum(revenue))
+		# print(solution, sum(revenue))
+		print('Initial feasible solution: ' +\
+			self.displaySolution(solution, sum(revenue))
+		)
 
 		return solution
 
@@ -167,14 +213,21 @@ class TabuSearchOAS:
 			# calculate if not available
 			completiontimes = self.calculateCompletionTimes(solution)
 
-		for orderno, ctime in enumerate(completiontimes, start=1):
-			# check if completion time is within due date
-			if ctime > self.duedate[orderno]:
-				feasible = False
-				break
+		starttimes = self.calculateStartTime(solution, completiontimes)
 
-			# check if release date could cause infeasibility
-			# INSERT LOGIC HERE
+		for ind, seq in enumerate(solution, start=0):
+			if seq > 0:
+				# scheduled
+				# check if completion time is within deadline
+				if completiontimes[ind] > self.deadline[ind+1]:
+					feasible = False
+					break
+
+				# check if start time is past release date
+				if starttimes[ind] < self.releasedate[ind+1]:
+					feasible = False
+					break
+			
 		return feasible
 
 
@@ -190,8 +243,10 @@ class TabuSearchOAS:
 					# same neighbor
 					continue
 				elif (order1, order2) in self.tabulist:
+					# same swap occured within tabu tenure
 					continue
 				elif (order2, order1) in self.tabulist:
+					# same swap occured within tabu tenure
 					continue
 				else:
 					# make copy
@@ -201,7 +256,7 @@ class TabuSearchOAS:
 						neighbor[order2-1], neighbor[order1-1]
 
 					# reject infeasible orders
-					neighbor, _ = self.rejectInfeasibleOrders(neighbor)
+					# neighbor, _ = self.rejectInfeasibleOrders(neighbor)
 
 					# track swap
 					swaps[tuple(neighbor)] = [(order1, order2), (order2, order1)]
@@ -233,7 +288,6 @@ class TabuSearchOAS:
 
 
 	def tabuSearchAlgorithm(self, threshould=50):
-
 		# create initial solution
 		self.initsol = self.createInitialSolution()
 		self.currsol = self.initsol[:]
@@ -258,7 +312,8 @@ class TabuSearchOAS:
 			if currsolrev > self.bestrev:
 				self.bestsol = self.currsol
 				self.bestrev = currsolrev
-				print(f'Improved Solution {self.bestsol} and Reveue {self.bestrev}')
+				print('Improved Solution: ' \
+					+ self.displaySolution(self.bestsol, self.bestrev))
 				noimprovementcount = 0
 			else:
 				noimprovementcount += 1
@@ -267,5 +322,22 @@ class TabuSearchOAS:
 
 			# write here randomized local search procedure
 
-		print(noimprovementcount, self.bestsol, self.bestrev)
+		print('Final Solution: ' \
+			+ self.displaySolution(self.bestsol, self.bestrev))
+		print('Best Solution: ', self.bestsol, self.bestrev)
+		completiontimes = self.calculateCompletionTimes(self.bestsol)
+		print('Completion Time: ', completiontimes)
+		print('Revenue: ', self.calculateRevenue(self.bestsol))
+		print('Release: ', self.releasedate[1:-1])
+		print('Start  : ', self.calculateStartTime(self.bestsol))
+		print('Premp  : ', self.calculatePreemption(self.bestsol))
+		print('Count  : ', self.count)
+
 		return self.bestsol
+
+
+	def displaySolution(self, solution, revenue=None):
+		if revenue == None:
+			revenue = sum(self.calculateRevenue(solution))
+		return f"Orders Accepted = {sum(s>0 for s in solution)} " + \
+			f"Revenue = {revenue}" 
