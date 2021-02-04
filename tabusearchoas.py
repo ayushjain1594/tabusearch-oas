@@ -1,6 +1,7 @@
 '''
 '''
 from math import ceil
+from random import uniform
 
 class TabuSearchOAS:
 	"""
@@ -38,6 +39,10 @@ class TabuSearchOAS:
 		self.tabulist = []
 		self.tabulistlen = 0
 
+		# revenue load ratios
+		self.RLR1 = {}
+		self.RLR2 = {}
+
 
 	def calculateCompletionTimes(self, solution):
 		# array to hold completion time for each order
@@ -51,7 +56,13 @@ class TabuSearchOAS:
 
 		# iterate over all sequence in solution
 		for i in range(min_, max_+1):
-			nextorderindex = solution.index(i)
+			try:
+				nextorderindex = solution.index(i)
+			except ValueError:
+				print('ValueError occured')
+				print(solution)
+				print(i, min_, max_)
+				raise ValueError()
 			nextorder = nextorderindex + 1 # order numbers are 1 to n
 
 			# total time incurred = setup time + process time
@@ -135,6 +146,19 @@ class TabuSearchOAS:
 		return newsolution
 
 
+	@staticmethod
+	def insertOrder(solution, ordertoinsert, insertloc):
+		newsolution = solution[:]
+		# adjust sequence
+		newsolution = [
+			(lambda x: x+1 if x >= insertloc else x)(x)
+			for x in newsolution
+		]
+		ordertoinsertind = ordertoinsert - 1
+		newsolution[ordertoinsertind] = insertloc
+		return newsolution
+
+
 	def rejectInfeasibleOrders(self, solution, mostnegative=True):
 		revenue = self.calculateRevenue(solution)
 		while any([revenue[i] < 0 for i, seq in enumerate(solution) if seq > 0]):
@@ -160,17 +184,34 @@ class TabuSearchOAS:
 		return solution, revenue
 
 
-	def createInitialSolution(self):
-		revenueloadratio = {}
+	def generateRLR1(self):
+		for order in range(1, self.n+1):
+			avgsetup = sum(self.setuptime[:self.n+1][order])/(self.n + 1)
+			self.RLR1[order] = self.revenue[order]/(
+				self.processtime[order] + avgsetup)
 
-		for i in range(1, self.n+1):
-			avgsetup = sum(self.setuptime[:][i-1])/(self.n + 1)
-			revenueloadratio[i] = self.revenue[i]/(
-				self.processtime[i] + avgsetup)
+
+	def generateRLR2(self, solution):
+		self.RLR2 = {}
+		prevorder  = 0 # 0 is dummy order
+		min_, max_ = max(min(solution), 1), max(solution)
+
+		# iterate over all sequence in solution
+		for seq in range(min_, max_+1):
+			orderind = solution.index(seq)
+			order = orderind + 1
+			self.RLR2[order] = self.revenue[order]/(
+				self.processtime[order] + \
+				self.setuptime[prevorder, order])
+			prevorder = order
+
+
+	def createInitialSolution(self):
+		self.generateRLR1()
 
 		sortedorders = {order: ratio 
 		for order, ratio in sorted(
-			revenueloadratio.items(), 
+			self.RLR1.items(), 
 			key=lambda item: item[1],
 			reverse=True
 			)
@@ -287,6 +328,43 @@ class TabuSearchOAS:
 			self.tabulistlen += len(swaps)
 
 
+	@staticmethod
+	def rouletteWheelSelection(choices):
+		max = sum(choices.values())
+		pick = uniform(0, max)
+		current = 0
+		for key, value in choices.items():
+			current += value
+			if current > pick:
+				return key
+
+
+	def localSearch(self, solution, revenuesum):
+		self.generateRLR2(solution)
+
+		# RLR1 for the rejected orders in solution
+		rejectedRLR1 = {order: self.RLR1[order]
+			for order, seq in enumerate(solution, start=1)
+			if seq == 0}
+
+		while len(rejectedRLR1) > 0:
+			ordertoinsert = TabuSearchOAS.rouletteWheelSelection(
+				rejectedRLR1
+			)
+
+			for insertloc in range(1, max(solution) + 2):
+				newsolution = TabuSearchOAS.insertOrder(solution, ordertoinsert, insertloc)
+				newsolution, newrevenue = self.rejectInfeasibleOrders(newsolution)
+
+				if sum(newrevenue) > 0.998*revenuesum:
+					solution = newsolution
+					break
+				else:
+					continue
+			del rejectedRLR1[ordertoinsert]
+		return solution
+
+
 	def tabuSearchAlgorithm(self, threshould=50):
 		# create initial solution
 		self.initsol = self.createInitialSolution()
@@ -320,7 +398,9 @@ class TabuSearchOAS:
 			if noimprovementcount >= 50:
 				terminate = True
 
-			# write here randomized local search procedure
+			# local search procedure for add and insert orders
+			for _ in range(ceil(self.n/6)):
+				self.currsol = self.localSearch(self.currsol, currsolrev)
 
 		print('Final Solution: ' \
 			+ self.displaySolution(self.bestsol, self.bestrev))
@@ -331,9 +411,8 @@ class TabuSearchOAS:
 		print('Release: ', self.releasedate[1:-1])
 		print('Start  : ', self.calculateStartTime(self.bestsol))
 		print('Premp  : ', self.calculatePreemption(self.bestsol))
-		print('Count  : ', self.count)
 
-		return self.bestsol
+		return self.bestrev
 
 
 	def displaySolution(self, solution, revenue=None):
